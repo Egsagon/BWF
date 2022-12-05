@@ -4,7 +4,10 @@
 
 import main
 import json
+import threading
 import tkinter as tk
+from time import sleep
+from tkinter import ttk
 from tkinter.constants import *
 from tkinter.filedialog import askdirectory, askopenfile
 
@@ -34,10 +37,12 @@ class App(tk.Tk):
         
         # Encoding options
         self.encryptor: main.Encryptor = None
-        self.backend: main.Backend = eval(f"main.{open('./user/settings').read()}")
+        self.backend: main.Backend = eval(f"main.Backends.{open('./user/settings').read()}Backend")
         
         # Sequence start
         self.home()
+        self.bar: ttk.Progressbar = None
+        self.msg: tk.Label = None
     
     def set_instances_counter(self, instance: str, inc: bool) -> None:
         '''
@@ -89,14 +94,15 @@ class App(tk.Tk):
             '''
             
             # Encryption
-            if pwd.get(): self.encryptor = main.Encryptor(pwd.get())
+            if pwd.get():
+                self.encryptor = main.Encryptor(main.encode_pwd(pwd.get()))
             
             # Backend
             be = backend.curselection()
             if len(be):
                 new = main.BACKENDS[be[0]]
-                self.backend = eval(f'main.{new}')
-                open('./user/settings.json', 'w').write(new)
+                self.backend = eval(f'main.Backends.{new}Backend')
+                open('./user/settings', 'w').write(new)
             
             # Quit
             # top.destroy()
@@ -130,11 +136,26 @@ class App(tk.Tk):
             Handle decryption.
             '''
             
-            res = self.backend.decrypt_to_folder(self.encryptor,
-                                                 source_entry.get(),
-                                                 target_entry.get())
+            # Open processs dialog
+            threading.Thread(target = self.process, args = [100]).start()
+            print('started subprocess')
+            # self.process(100)
             
-            self.finish('Finished job:\n' + json.dumps(res, indent = 3))
+            sleep(1)
+            
+            try:
+                res = main.decrypt_to_folder(self.encryptor,
+                                             source_entry.get(),
+                                             target_entry.get(),
+                                             self.backend,
+                                             bar = self.bar,
+                                             msg = self.msg)
+
+                self.finish('Finished job:\n' + json.dumps(res, indent = 3))
+            
+            # Error protection
+            except Exception as e:
+                self.finish(f'Failed process:\n{type(e)}:\n{e}')
         
         def on_cancel(*_):
             self.set_instances_counter('decrypt', 0)
@@ -175,16 +196,25 @@ class App(tk.Tk):
             Handle encryption.
             '''
             
-            source = source_entry.get()
-            target = target_entry.get()
+            threading.Thread(target = self.process, args = [100]).start()
+            print('started subprocess')
+            # self.process(100)
             
-            res = self.backend.encrypt_to_rtf(
-                self.encryptor,
-                source,
-                target
-            )
+            sleep(1)
+            try:
+                res = main.encrypt_to_rtf(self.encryptor,
+                                        source_entry.get(),
+                                        target_entry.get(),
+                                        self.backend,
+                                        bar = self.bar,
+                                        msg = self.msg)
+
+                self.finish('Finished job:\n' + json.dumps(res, indent = 3))
             
-            self.finish('Finished job:\n' + json.dumps(res, indent = 3))
+            except Exception as e:
+                print(e)
+                
+                self.finish(f'Failed process:\n{type(e)}:\n{e}')
         
         def on_cancel(*_):
             self.set_instances_counter('encrypt', 0)
@@ -223,7 +253,21 @@ class App(tk.Tk):
         top = tk.Toplevel(self)
         tk.Label(top, text = text, anchor = 'w').pack()
         top.mainloop()
+
+    def process(self, length) -> None:
+        '''
+        '''
         
+        proc = tk.Tk()
+        proc.geometry('300x300')
+        
+        self.bar = ttk.Progressbar(proc, orient = 'horizontal', length = length, mode = 'determinate')
+        self.msg = tk.Label(proc, text = 'Starting ...')
+        
+        # Packing
+        self.bar.pack(ipady=10, ipadx = 200)
+        self.msg.pack()
+        proc.mainloop()
 
 if __name__ == '__main__':
     
